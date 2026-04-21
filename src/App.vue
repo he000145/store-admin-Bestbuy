@@ -1,23 +1,26 @@
 <template>
   <TopNav />
-  <router-view
-    :orders="orders"
-    :products="products"
-    @fetchOrders="fetchOrders"
-    @completeOrder="completeOrder"
-    @addProductsToList="addProductsToList"
-    @updateProductInList="updateProductInList"
-    @getProduct="getProduct"
-    @getProducts="getProducts"
-  ></router-view>
+  <main class="app-shell">
+    <router-view
+      :orders="orders"
+      :products="products"
+      @fetchOrders="fetchOrders"
+      @completeOrder="completeOrder"
+      @addProductsToList="addProductsToList"
+      @updateProductInList="updateProductInList"
+      @getProduct="getProduct"
+      @getProducts="getProducts"
+    />
+  </main>
 </template>
 
 <script>
 import TopNav from './components/TopNav.vue';
 
-const productServiceUrl = "/products/";
-const singleProductServiceUrl = "/product/";
-const makelineServiceUrl = "/makeline/";
+const orderServiceUrl = '/orders';
+const productServiceUrl = '/products';
+const singleProductServiceUrl = '/product/';
+const makelineServiceUrl = '/makeline/';
 
 export default {
   name: 'App',
@@ -27,12 +30,12 @@ export default {
   data() {
     return {
       orders: [],
-      products: [],
-      product: {}
-    }
+      products: []
+    };
   },
   mounted() {
     this.getProducts();
+    this.fetchOrders();
   },
   methods: {
     async addProductsToList(newProduct) {
@@ -40,218 +43,486 @@ export default {
     },
     async updateProductInList(updatedProduct) {
       const index = this.products.findIndex(product => product.id === updatedProduct.id);
-      this.products[index] = updatedProduct;
+
+      if (index >= 0) {
+        this.products[index] = updatedProduct;
+        return;
+      }
+
+      this.products.push(updatedProduct);
     },
     async getProduct(id) {
       fetch(`${singleProductServiceUrl}${id}`)
         .then(response => response.json())
         .then(product => {
-          this.product.id = product.id
-          this.product.name = product.name
-          this.product.image = product.image
-          this.product.description = product.description
-          this.product.price = product.price
-        })
-        .catch(error => {
-          console.log(error)
-          alert('Error occurred while fetching product')
-        })
-    },
-    async getProducts() {
-      fetch(`${productServiceUrl}`)
-        .then(response => response.json())
-        .then(products => {
-          this.products = products
-        })
-        .catch(error => {
-          console.log(error)
-          alert('Error occurred while fetching products')
-        })
-    },
-    async fetchOrders() {
-      await fetch(`${makelineServiceUrl}order/fetch`)
-        .then(response => response.json())
-        .then(data => {
-          console.log(data)
-          if (data) {
-            this.orders = data;
+          const index = this.products.findIndex(existingProduct => existingProduct.id === product.id);
+
+          if (index >= 0) {
+            this.products[index] = product;
           } else {
-            console.log('No orders from server');
+            this.products.push(product);
           }
         })
-        .catch(error => console.error(error));
+        .catch(error => {
+          console.log(error);
+          alert('Error occurred while fetching product');
+        });
     },
-    async completeOrder(orderId) {      
-      // get the order and update the status
-      let order = this.orders.find(order => order.orderId === orderId);
-      order.status = 1;
+    async getProducts() {
+      fetch(productServiceUrl)
+        .then(response => response.json())
+        .then(products => {
+          this.products = Array.isArray(products) ? products : [];
+        })
+        .catch(error => {
+          console.log(error);
+          alert('Error occurred while fetching products');
+        });
+    },
+    async fetchOrders() {
+      try {
+        this.orders = await this.fetchOrderSource(orderServiceUrl);
+      } catch (error) {
+        console.log(error);
+        this.orders = [];
+      }
+    },
+    async fetchOrderSource(url) {
+      const response = await fetch(url);
 
-      let orderObject = JSON.stringify(order)
-      console.log(orderObject);
+      if (!response.ok) {
+        throw new Error(`Request failed for ${url}`);
+      }
+
+      const rawResponse = await response.text();
+      let payload = [];
+
+      if (rawResponse) {
+        payload = JSON.parse(rawResponse);
+      }
+
+      return this.extractCollection(payload).map(order => this.normalizeOrder(order));
+    },
+    extractCollection(payload) {
+      if (Array.isArray(payload)) {
+        return payload;
+      }
+
+      if (payload && Array.isArray(payload.orders)) {
+        return payload.orders;
+      }
+
+      if (payload && Array.isArray(payload.data)) {
+        return payload.data;
+      }
+
+      if (payload && typeof payload === 'object' && (payload.orderId || payload.id || payload._id)) {
+        return [payload];
+      }
+
+      return [];
+    },
+    mergeOrders(primaryOrders, secondaryOrders) {
+      const mergedOrders = new Map();
+
+      [...primaryOrders, ...secondaryOrders].forEach(order => {
+        if (!order.orderId) {
+          return;
+        }
+
+        const existing = mergedOrders.get(order.orderId);
+        mergedOrders.set(order.orderId, existing ? this.mergeOrderData(existing, order) : order);
+      });
+
+      return Array.from(mergedOrders.values()).sort((leftOrder, rightOrder) => {
+        const leftTimestamp = Date.parse(leftOrder.updatedAt || leftOrder.createdAt || '') || 0;
+        const rightTimestamp = Date.parse(rightOrder.updatedAt || rightOrder.createdAt || '') || 0;
+
+        if (rightTimestamp !== leftTimestamp) {
+          return rightTimestamp - leftTimestamp;
+        }
+
+        return rightOrder.orderId.localeCompare(leftOrder.orderId);
+      });
+    },
+    mergeOrderData(existingOrder, newOrder) {
+      return {
+        ...existingOrder,
+        ...newOrder,
+        items: newOrder.items.length ? newOrder.items : existingOrder.items,
+        itemsCount: newOrder.itemsCount ?? existingOrder.itemsCount,
+        total: newOrder.total ?? existingOrder.total,
+        customerId: newOrder.customerId || existingOrder.customerId,
+        customerName: newOrder.customerName || existingOrder.customerName,
+        createdAt: newOrder.createdAt || existingOrder.createdAt,
+        updatedAt: newOrder.updatedAt || existingOrder.updatedAt,
+        status: newOrder.status ?? existingOrder.status,
+        statusKey: newOrder.statusKey || existingOrder.statusKey,
+        statusLabel: newOrder.statusLabel || existingOrder.statusLabel
+      };
+    },
+    normalizeOrder(order) {
+      const items = Array.isArray(order.items) ? order.items : [];
+      const orderId = order.orderId ?? order.id ?? order._id ?? '';
+      const customerId = order.customerId ?? order.customer?.customerId ?? order.customer?.id ?? '';
+      const customerName = order.customerName ?? order.customer?.name ?? order.customer?.fullName ?? '';
+      const statusValue = order.status ?? order.orderStatus ?? order.state ?? '';
+      const normalizedStatus = this.normalizeStatus(statusValue);
+
+      return {
+        ...order,
+        orderId: orderId !== null && orderId !== undefined ? String(orderId) : '',
+        customerId: customerId !== null && customerId !== undefined ? String(customerId) : '',
+        customerName,
+        items,
+        itemsCount: order.itemsCount ?? items.reduce((count, item) => count + Number(item.quantity || 0), 0),
+        total: this.calculateOrderTotal(items, order.total ?? order.amount ?? order.orderTotal),
+        status: statusValue,
+        statusKey: normalizedStatus.key,
+        statusLabel: normalizedStatus.label,
+        createdAt: order.createdAt ?? order.created_at ?? order.orderDate ?? order.timestamp ?? '',
+        updatedAt: order.updatedAt ?? order.updated_at ?? order.lastUpdated ?? order.processedAt ?? ''
+      };
+    },
+    normalizeStatus(status) {
+      if (status === null || status === undefined || status === '') {
+        return {
+          key: 'unknown',
+          label: 'Unknown'
+        };
+      }
+
+      if (typeof status === 'number') {
+        if (status === 0) {
+          return { key: 'pending', label: 'Pending' };
+        }
+
+        if (status === 1) {
+          return { key: 'processing', label: 'Processing' };
+        }
+
+        if (status === 2) {
+          return { key: 'completed', label: 'Completed' };
+        }
+
+        return {
+          key: `status-${status}`,
+          label: `Status ${status}`
+        };
+      }
+
+      const normalizedValue = String(status).trim().toLowerCase();
+      const statusMap = {
+        pending: 'Pending',
+        processing: 'Processing',
+        completed: 'Completed',
+        cancelled: 'Cancelled',
+        failed: 'Failed'
+      };
+
+      if (statusMap[normalizedValue]) {
+        return {
+          key: normalizedValue,
+          label: statusMap[normalizedValue]
+        };
+      }
+
+      if (normalizedValue === '0') {
+        return { key: 'pending', label: 'Pending' };
+      }
+
+      if (normalizedValue === '1') {
+        return { key: 'processing', label: 'Processing' };
+      }
+
+      if (normalizedValue === '2') {
+        return { key: 'completed', label: 'Completed' };
+      }
+
+      const key = normalizedValue.replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'unknown';
+
+      return {
+        key,
+        label: this.toTitleCase(normalizedValue)
+      };
+    },
+    calculateOrderTotal(items, explicitTotal) {
+      const total = Number(explicitTotal);
+
+      if (Number.isFinite(total) && total >= 0) {
+        return total;
+      }
+
+      return items.reduce((sum, item) => {
+        const price = Number(item.price || 0);
+        const quantity = Number(item.quantity || 0);
+
+        return sum + (price * quantity);
+      }, 0);
+    },
+    toTitleCase(value) {
+      return value
+        .split(/[\s_-]+/)
+        .filter(Boolean)
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+    },
+    async completeOrder(orderId) {
+      const order = this.orders.find(existingOrder => existingOrder.orderId === orderId);
+
+      if (!order) {
+        return;
+      }
+
+      const updatedOrder = {
+        ...order,
+        status: typeof order.status === 'number' ? 2 : 'completed'
+      };
 
       await fetch(`${makelineServiceUrl}order`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: orderObject
+        body: JSON.stringify(updatedOrder)
       })
         .then(response => {
           if (!response.ok) {
-            alert('Error occurred while processing order')
-          } else {
-            alert('Order successfully processed')
-            // remove the order from the list
-            this.orders = this.orders.filter(order => order.orderId !== orderId);
-            this.$router.go(-1);
+            alert('Error occurred while updating the order status');
+            return;
           }
+
+          alert('Order status override saved');
+          return this.fetchOrders();
         })
         .catch(error => {
-          console.log(error)
-          alert('Error occurred while processing order')
-        })
+          console.log(error);
+          alert('Error occurred while updating the order status');
+        });
     }
-  },
-}
+  }
+};
 </script>
 
 <style>
+:root {
+  --bb-blue: #0046be;
+  --bb-blue-dark: #00318a;
+  --bb-yellow: #ffe000;
+  --bb-surface: #ffffff;
+  --bb-surface-alt: #f3f7fc;
+  --bb-border: #d8e2ef;
+  --bb-text: #16324f;
+  --bb-muted: #5b7083;
+  --bb-shadow: 0 16px 36px rgba(0, 70, 190, 0.12);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at top right, rgba(255, 224, 0, 0.18), transparent 22rem),
+    linear-gradient(180deg, #f8fbff 0%, #eef4fb 100%);
+  color: var(--bb-text);
+  font-family: 'Trebuchet MS', 'Segoe UI', sans-serif;
+}
+
 #app {
-  font-family: Avenir, Helvetica, Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-align: center;
-  color: #2c3e50;
-  margin-top: 120px;
-  padding: 1rem;
+  min-height: 100vh;
+  color: var(--bb-text);
+  text-align: left;
 }
 
-footer {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  background-color: #333;
-  color: #fff;
-  padding: 1rem;
-  margin: 0;
-}
-
-nav {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-ul {
-  display: flex;
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-li {
-  margin: 0 1rem;
+.app-shell {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 7.5rem 1rem 2rem;
 }
 
 a {
-  color: #fff;
+  color: var(--bb-blue);
   text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+button {
+  padding: 0.75rem 1rem;
+  background-color: var(--bb-blue);
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 700;
+  transition: transform 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+button:hover {
+  background-color: var(--bb-blue-dark);
+  box-shadow: 0 12px 24px rgba(0, 70, 190, 0.2);
+  transform: translateY(-1px);
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.6;
+  box-shadow: none;
+  transform: none;
 }
 
 table {
   width: 100%;
   border-collapse: collapse;
-  border-spacing: 0;
+  background: var(--bb-surface);
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: var(--bb-shadow);
 }
 
 th,
 td {
-  padding: 8px;
+  padding: 0.9rem 1rem;
   text-align: left;
-  border-bottom: 1px solid #ddd;
+  border-bottom: 1px solid var(--bb-border);
 }
 
-.order-detail {
-  text-align: left;
+th {
+  background: #eaf1fb;
+  color: var(--bb-muted);
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
-button {
-  padding: 10px;
-  background-color: #005f8b;
-  color: #fff;
-  border: none;
-  border-radius: 5px;
-  cursor: pointer;
-  height: 42px;
-}
-
-button:hover {
-  background-color: #005f8b;
+tr:last-child td {
+  border-bottom: none;
 }
 
 .action-button {
-  float: right;
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 1rem;
 }
 
 .product-detail {
-  text-align: left;
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  gap: 1rem;
-  margin: 2rem auto;
+  gap: 1.5rem;
+  margin: 0 auto;
 }
 
 .product-form {
   display: flex;
   flex-direction: column;
-  align-items: left;
   justify-content: center;
-  margin: 2rem auto;
-  width: 50%;
+  margin: 0 auto;
+  width: min(100%, 760px);
 }
 
 .form-row {
   display: flex;
-  flex-direction: row;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 10px;
 }
 
-.ai-button {
-  margin-left: 10px;
-  padding: 10px 10px;
-  border-radius: 5px;
-  border: none;
-  background-color: #007acc;
-  color: #fff;
-  cursor: pointer;
-}
-
-.ai-button:hover {
-  background-color: #005f8b;
-}
-
-textarea {
+textarea,
+select,
+input {
   width: 100%;
-  padding: 5px;
-  border-radius: 5px;
-  border: 1px solid #ccc;
+  padding: 0.75rem;
+  border-radius: 12px;
+  border: 1px solid var(--bb-border);
+  background: #fff;
+  color: var(--bb-text);
+  font: inherit;
 }
 
 label {
-  text-align: right;
   margin-right: 10px;
-  width: 100px;
-  font-weight: bold;
+  font-weight: 700;
 }
 
-input {
-  width: 100%;
-  padding: 5px;
-  border-radius: 5px;
-  border: 1px solid #ccc;
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 7.5rem;
+  padding: 0.4rem 0.8rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.status-badge--pending {
+  background: rgba(255, 224, 0, 0.28);
+  color: #7a5d00;
+}
+
+.status-badge--processing {
+  background: rgba(0, 70, 190, 0.14);
+  color: var(--bb-blue);
+}
+
+.status-badge--completed {
+  background: rgba(20, 148, 96, 0.14);
+  color: #176b45;
+}
+
+.status-badge--cancelled,
+.status-badge--failed,
+.status-badge--unknown {
+  background: rgba(202, 33, 64, 0.12);
+  color: #8f1d33;
+}
+
+@media (max-width: 768px) {
+  .app-shell {
+    padding-top: 8.5rem;
+  }
+
+  table,
+  thead,
+  tbody,
+  th,
+  td,
+  tr {
+    display: block;
+  }
+
+  thead {
+    display: none;
+  }
+
+  tr {
+    margin-bottom: 1rem;
+    border-radius: 18px;
+    overflow: hidden;
+    box-shadow: var(--bb-shadow);
+  }
+
+  td {
+    background: #fff;
+  }
+
+  td::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 0.35rem;
+    color: var(--bb-muted);
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+
+  .product-detail {
+    flex-direction: column;
+  }
 }
 </style>

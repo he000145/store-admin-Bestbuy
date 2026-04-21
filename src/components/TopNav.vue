@@ -1,16 +1,19 @@
 <template>
-  <nav>
-    <div class="logo">
-      <a href="/">
-        <img src="/algonquin-pet-store.png" alt="Algonquin Pet Store Logo">
-      </a>
-      Admin Portal
-    </div>
+  <nav class="top-nav">
+    <router-link class="brand" to="/" @click="closeNav">
+      <span class="brand-mark">BB</span>
+      <div class="brand-copy">
+        <span class="brand-title">Best Buy Admin Dashboard</span>
+        <small>Monitor orders and products for the CST8915 final project</small>
+      </div>
+    </router-link>
+
     <ul class="nav-links" :class="{ 'nav-links--open': isNavOpen }">
       <li><router-link to="/orders" @click="closeNav">Orders</router-link></li>
       <li><router-link to="/products" @click="closeNav">Products</router-link></li>
     </ul>
-    <button class="hamburger" @click="toggleNav">
+
+    <button class="hamburger" @click="toggleNav" aria-label="Toggle navigation">
       <span class="hamburger-icon"></span>
     </button>
   </nav>
@@ -22,80 +25,126 @@ export default {
   data() {
     return {
       isNavOpen: false
-    }
+    };
   },
   methods: {
     toggleNav() {
-      this.isNavOpen = !this.isNavOpen
+      this.isNavOpen = !this.isNavOpen;
     },
     closeNav() {
-      this.isNavOpen = false
+      this.isNavOpen = false;
     }
   }
-}
+};
 </script>
 
 <style scoped>
-nav {
+.top-nav {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background-color: #333;
+  gap: 1rem;
+  background: linear-gradient(135deg, var(--bb-blue) 0%, #0b5bda 100%);
   color: #fff;
-  padding-top: 0.5rem;
-  padding-left: 1rem;
-  padding-right: 1rem;
-  padding-bottom: 1px;
+  padding: 1rem 1.25rem;
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
-  font-size: 1.5rem;
-  font-weight: bold;
+  z-index: 20;
+  box-shadow: 0 16px 36px rgba(0, 49, 138, 0.28);
 }
 
-nav img {
-  padding-right: 15px;
-  width: 100px;
-  height: auto;
-  align-self: center;
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  min-width: 0;
+  color: inherit;
+}
+
+.brand:hover {
+  text-decoration: none;
+}
+
+.brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3rem;
+  height: 3rem;
+  border-radius: 16px;
+  background: var(--bb-yellow);
+  color: var(--bb-blue);
+  font-size: 1rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.brand-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.brand-title {
+  font-size: 1.1rem;
+  font-weight: 800;
+}
+
+.brand-copy small {
+  color: rgba(255, 255, 255, 0.84);
+  font-size: 0.8rem;
 }
 
 .nav-links {
   display: flex;
+  align-items: center;
+  gap: 0.75rem;
   list-style: none;
+  margin: 0;
+  padding: 0;
 }
 
-.logo {
-  display: flex;
+.nav-links a {
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
+  padding: 0.6rem 1rem;
+  border-radius: 999px;
+  color: #fff;
+  font-weight: 700;
+}
+
+.nav-links a.router-link-active {
+  background: rgba(255, 255, 255, 0.14);
+  text-decoration: none;
 }
 
 .hamburger {
   display: none;
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 0;
-  margin: 0;
-  margin-top: -40px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.hamburger:hover {
+  background: transparent;
+  box-shadow: none;
 }
 
 .hamburger-icon {
   display: block;
-  width: 20px;
+  width: 22px;
   height: 2px;
   background-color: #fff;
   position: relative;
-  top: 50%;
-  transform: translateY(-50%);
 }
 
 .hamburger-icon::before,
 .hamburger-icon::after {
   content: '';
   display: block;
-  width: 20px;
+  width: 22px;
   height: 2px;
   background-color: #fff;
   position: absolute;
@@ -111,26 +160,30 @@ nav img {
 }
 
 @media (max-width: 768px) {
+  .top-nav {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
   .nav-links {
     display: none;
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    background-color: #333;
-    padding: 1rem;
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+    padding-top: 0.75rem;
   }
 
   .nav-links--open {
-    display: block;
-  }
-
-  .nav-links--open li {
-    padding: 0.5rem 0;
+    display: flex;
   }
 
   .hamburger {
-    display: block;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 3rem;
+    padding: 0.85rem;
   }
 }
 </style>
